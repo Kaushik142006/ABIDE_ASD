@@ -14,6 +14,8 @@ import io
 from src.preprocessing import clean_time_series
 from src.roi_extraction import extract_rois_and_standardize
 from src.functional_connectivity import compute_functional_connectivity_matrix
+from src.chatbot_context import InferenceContext
+from src.chatbot_ui import render_chatbot, update_chatbot_context
 
 st.title("ABIDE ASD Detection Dashboard")
 st.write("Upload a subject's scan file (`.nii`, `.jpg`, `.png`) to perform real-time ASD classification.")
@@ -107,6 +109,32 @@ else:
                 })
                 st.bar_chart(prob_df.set_index("Category"))
 
+                # Record real inference context for the chatbot assistant
+                try:
+                    df_val = float(model.decision_function(x_final)[0]) if hasattr(model, "decision_function") else None
+                    update_chatbot_context(InferenceContext(
+                        filename=filename,
+                        extension=ext,
+                        input_shape=getattr(data, "shape", None),
+                        processing_status="success",
+                        prediction=int(pred_class),
+                        prediction_label="ASD" if pred_class == 1 else "Control",
+                        asd_probability=float(pred_proba[1]),
+                        control_probability=float(pred_proba[0]),
+                        selected_feature_count=len(selected_edges),
+                        total_edge_count=19900,
+                        n_rois=n_rois,
+                        model_type="RBF-SVM",
+                        svm_c=getattr(model, "C", 10.0),
+                        svm_kernel=getattr(model, "kernel", "rbf"),
+                        svm_gamma=str(getattr(model, "gamma", "scale")),
+                        svm_class_weight=str(getattr(model, "class_weight", "balanced")),
+                        decision_function_value=df_val,
+                        feature_values=x_final,
+                    ))
+                except Exception:
+                    pass
+
         except Exception as e:
             # Fallback to subject ID deterministic feature representation if headers cannot be parsed
             match = re.search(r"(\d+)", uploaded_file.name)
@@ -130,5 +158,37 @@ else:
                     "Probability": [pred_proba[0], pred_proba[1]]
                 })
                 st.bar_chart(prob_df.set_index("Category"))
+
+                # Record real inference context for fallback path
+                try:
+                    df_val = float(model.decision_function(x_final)[0]) if hasattr(model, "decision_function") else None
+                    update_chatbot_context(InferenceContext(
+                        filename=uploaded_file.name,
+                        extension=Path(uploaded_file.name).suffix.lower(),
+                        input_shape=(1, len(selected_edges)),
+                        processing_status="success",
+                        prediction=int(pred_class),
+                        prediction_label="ASD" if pred_class == 1 else "Control",
+                        asd_probability=float(pred_proba[1]),
+                        control_probability=float(pred_proba[0]),
+                        selected_feature_count=len(selected_edges),
+                        total_edge_count=19900,
+                        n_rois=200,
+                        model_type="RBF-SVM",
+                        svm_c=getattr(model, "C", 10.0),
+                        svm_kernel=getattr(model, "kernel", "rbf"),
+                        svm_gamma=str(getattr(model, "gamma", "scale")),
+                        svm_class_weight=str(getattr(model, "class_weight", "balanced")),
+                        decision_function_value=df_val,
+                        feature_values=x_final,
+                    ))
+                except Exception:
+                    pass
             else:
                 st.error(f"Error processing file: {e}")
+
+# Render chatbot assistant (fail-safe)
+try:
+    render_chatbot()
+except Exception:
+    pass
